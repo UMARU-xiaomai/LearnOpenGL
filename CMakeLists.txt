@@ -19,7 +19,7 @@ link_directories (
 	SYSTEM "${CMAKE_CURRENT_SOURCE_DIR}/thirdParty/lib"
 )
 # 将源代码添加到此项目的可执行文件。
-add_executable (OpenGL_test1 "OpenGL_test1.cpp" "OpenGL_test1.h" "glad.c" "MyShader.h" "MyShader.cpp" "stbi.cpp")
+add_executable (OpenGL_test1 "OpenGL_test1.cpp" "OpenGL_test1.h" "glad.c" "MyShader.h" "MyShader.cpp" "stbi.cpp" "MyTransform.cpp" "MyTransform.h" "MyObject.cpp" "MyObject.h")
 
 target_link_libraries(OpenGL_test1 glfw3.lib)
 

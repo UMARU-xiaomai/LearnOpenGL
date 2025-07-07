@@ -3,13 +3,20 @@
 
 #include "OpenGL_test1.h"
 #include "MyShader.h"	
+#include "MyTransform.h" // 自定义变换类
+#include "MyObject.h" // 自定义对象类
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include "stb_image.h" // 用于加载纹理图像
+#include <thread> 
 using namespace std;
 
 #include <fstream>
 #include <sstream>
+
+
+const double targetFPS = 60.0;
+const double frameDuration = 1.0 / targetFPS;
 
 int main()
 {
@@ -45,14 +52,15 @@ int main()
 		});
 	
 	/*
-	*-7.VAO,VBO,EBO，纹理------------------------------------------------------------------
+	*-7.VAO,VBO,EBO------------------------------------------------------------------
 	*/
 	// 顶点数据
 	float vertices[] = {
-		0.5f, 0.5f, 0.0f,   // 右上角
-		0.5f, -0.5f, 0.0f,  // 右下角
-		-0.5f, -0.5f, 0.0f, // 左下角
-		-0.5f, 0.5f, 0.0f   // 左上角
+		// 顶点坐标			// 纹理坐标
+		0.5f, 0.5f, 0.0f,   1.0f, 1.0f, // 右上角
+		0.5f, -0.5f, 0.0f,  1.0f, 0.0f, // 右下角
+		-0.5f, -0.5f, 0.0f, 0.0f, 0.0f, // 左下角
+		-0.5f, 0.5f, 0.0f,  0.0f, 1.0f  // 左上角
 	};
 	// EBO索引
 	unsigned int indices[] = {
@@ -82,44 +90,31 @@ int main()
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
 	// 设置顶点属性指针
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+	// 绑定纹理坐标属性
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
 	glEnableVertexAttribArray(0);
+	glEnableVertexAttribArray(1); // 启用纹理坐标属性
 
 	// 解绑 VAO（可选）
-	glBindVertexArray(0);
+	// glBindVertexArray(0);
 
 	/*
-	* -7.1 纹理---------------
+	* -纹理---------------
 	*/
-	float texCoords[] = {
-	0.0f, 0.0f, // 左下角
-	1.0f, 0.0f, // 右下角
-	0.5f, 1.0f  // 上中
-	};
 
 	// 生成纹理对象
-	unsigned int texture;
-	glGenTextures(1, &texture);
-	glBindTexture(GL_TEXTURE_2D, texture); // 绑定纹理对象
-	// 设置纹理环绕方式
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT); // S轴重复
-	// 设置纹理过滤方式
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR); // 缩小过滤
+	unsigned int textures[2];
+	glGenTextures(2, textures);
+
+	glActiveTexture(GL_TEXTURE0); // OpenGL默认激活纹理单元0，至少16个纹理单元(GL_TEXTURE0 ~ GL_TEXTURE15)
+	glBindTexture(GL_TEXTURE_2D, textures[0]); // 绑定纹理对象
+	AddTexture("box.jpg");
+
+	glActiveTexture(GL_TEXTURE1); // OpenGL默认激活纹理单元0，至少16个纹理单元(GL_TEXTURE0 ~ GL_TEXTURE15)
+	glBindTexture(GL_TEXTURE_2D, textures[1]); // 绑定纹理对象
+	AddTexture("smile.png");
 	
-	// 使用stbi_load加载纹理图像
-	int width, height, nrChannels;
-	unsigned char* data = stbi_load("test_texture.jpg", &width, &height, &nrChannels, 0);
-	if (data)
-	{
-		// 生成纹理
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
-		glGenerateMipmap(GL_TEXTURE_2D); // 生成mipmap
-	}
-	else
-	{
-		std::cout << "Failed to load texture" << std::endl;
-	}
-	stbi_image_free(data); // 释放图像内存
 
 	/*
 	*  -8.着色器------------------------------------------------------------
@@ -132,15 +127,32 @@ int main()
 	/*
 	*----------------------------------------------------------------------
 	*/
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE); // 设置绘制模式为线框模式
 
-	int nrAttributes;
+	// 设置纹理单元,由于只有在启动着色器程序后才能使用glUniform函数，所以需要在shader.use()之后设置纹理单元
+	glUniform1i(glGetUniformLocation(shader.ID, "boxTexture"), 0); // 手动设置
+	shader.setInt("smileTexture", 1); // 或者使用着色器类设置
+
+	MyObject myObject(VAO, shader); // 创建自定义对象
+
+	// glPolygonMode(GL_FRONT_AND_BACK, GL_LINE); // 设置绘制模式为线框模式
+
+	// 检查可用的顶点属性数量
+	/*int nrAttributes;
 	glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &nrAttributes);
-	std::cout << "Maximum nr of vertex attributes supported: " << nrAttributes << std::endl;
+	std::cout << "Maximum nr of vertex attributes supported: " << nrAttributes << std::endl;*/
 
+	double lastTime = glfwGetTime(); // 用于记录上一次的时间
 	// 5.渲染循环
 	while (!glfwWindowShouldClose(window)) //检查窗口是否被关闭
 	{
+		
+		double curTimeDelta = glfwGetTime() - lastTime; // 获取当前时间与上一次时间的差值
+		lastTime = glfwGetTime(); // 更新上一次时间
+		// 计算上一帧帧率
+		double fps = 1 / curTimeDelta; // 每秒帧数
+		std::cout << "FPS: " << fps << std::endl;
+		
+
 		//根据按键输入设置背景颜色
 		//if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS)
 		//{
@@ -153,20 +165,62 @@ int main()
 		//	glClear(GL_COLOR_BUFFER_BIT);
 		//}
 
-		glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+		glClearColor(0.0f, 1.0f, 1.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
-		// draw our first triangle
-		shader.use();
-		glBindVertexArray(VAO); // 每次绘制时绑定对应VAO即可，无需手动绑定VBO
-		// glDrawArrays(GL_TRIANGLES, 0, 3); // 使用VBO绘制三角形
-		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0); // 使用EBO绘制
+		myObject.Display(); // 绘制自定义对象
+		
+		if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+		{
+			const glm::vec3& p = myObject.transform.position;
+			myObject.transform.setPosition(glm::vec3(p.x, p.y+0.1f*curTimeDelta, p.z));
+		}
+		
 
 		glfwSwapBuffers(window);//交换前后缓冲区
 		glfwPollEvents();//检查是否有事件发生
+		auto elapsed = glfwGetTime() - lastTime; // 计算当前帧的渲染时间
+		std::cout << "Elapsed time for this frame: " << elapsed << " seconds" << std::endl;
+		/*if (elapsed < frameDuration)
+		{
+			std::this_thread::sleep_for(std::chrono::duration<double>(frameDuration - elapsed));
+		}*/
 	}
 	// 6.清理资源
 	glfwTerminate();
 	return 0;
 }
 
+void AddTexture(const char* address)
+{
+	// 设置纹理环绕方式
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT); // S轴重复
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); // T轴拉伸
+	// 设置纹理过滤方式
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); // 缩小过滤
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR); // 放大过滤
+
+	// 使用stbi_load加载纹理图像
+	int width, height, nrChannels;
+	stbi_set_flip_vertically_on_load(true); // 翻转图像以适应OpenGL的坐标系
+	unsigned char* data = stbi_load(address, &width, &height, &nrChannels, 0);
+	if (data)
+	{
+		GLenum format = GL_RGBA;
+		if (nrChannels == 1)
+			format = GL_RED;
+		else if (nrChannels == 3)
+			format = GL_RGB;
+		else if (nrChannels == 4)
+			format = GL_RGBA;
+
+		// 生成纹理
+		glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+		glGenerateMipmap(GL_TEXTURE_2D); // 生成mipmap
+	}
+	else
+	{
+		std::cout << "Failed to load texture" << std::endl;
+	}
+	stbi_image_free(data); // 释放图像内存
+}

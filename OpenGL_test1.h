@@ -5,3 +5,4 @@
 
 #include <iostream>
 
+void AddTexture(const char* address);
