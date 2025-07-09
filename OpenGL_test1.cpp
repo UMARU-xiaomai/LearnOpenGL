@@ -9,14 +9,14 @@
 #include <GLFW/glfw3.h>
 #include "stb_image.h" // 用于加载纹理图像
 #include <thread> 
+#include <chrono>
 using namespace std;
 
 #include <fstream>
 #include <sstream>
 
-
 const double targetFPS = 60.0;
-const double frameDuration = 1.0 / targetFPS;
+const double frameDuration = targetFPS>0?1.0 / targetFPS:0.0;
 
 int main()
 {
@@ -50,7 +50,7 @@ int main()
 	glfwSetFramebufferSizeCallback(window, [](GLFWwindow* window, int width, int height) {
 		glViewport(0, 0, width, height);
 		});
-	
+
 	/*
 	*-7.VAO,VBO,EBO------------------------------------------------------------------
 	*/
@@ -114,7 +114,7 @@ int main()
 	glActiveTexture(GL_TEXTURE1); // OpenGL默认激活纹理单元0，至少16个纹理单元(GL_TEXTURE0 ~ GL_TEXTURE15)
 	glBindTexture(GL_TEXTURE_2D, textures[1]); // 绑定纹理对象
 	AddTexture("smile.png");
-	
+
 
 	/*
 	*  -8.着色器------------------------------------------------------------
@@ -141,52 +141,77 @@ int main()
 	glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &nrAttributes);
 	std::cout << "Maximum nr of vertex attributes supported: " << nrAttributes << std::endl;*/
 
+	// 修复时间管理系统
 	double lastTime = glfwGetTime(); // 用于记录上一次的时间
+	double lastFrameTime = lastTime; // 用于计算帧率
+	int frameCount = 0; // 帧计数器
+	double fpsUpdateTime = lastTime; // 用于更新FPS显示的时间
+
 	// 5.渲染循环
 	while (!glfwWindowShouldClose(window)) //检查窗口是否被关闭
 	{
-		
-		double curTimeDelta = glfwGetTime() - lastTime; // 获取当前时间与上一次时间的差值
-		lastTime = glfwGetTime(); // 更新上一次时间
-		// 计算上一帧帧率
-		double fps = 1 / curTimeDelta; // 每秒帧数
-		std::cout << "FPS: " << fps << std::endl;
-		
+		double currentTime = glfwGetTime();
+		double deltaTime = currentTime - lastTime; // 当前帧与上一帧的时间差
+		lastTime = currentTime;
 
-		//根据按键输入设置背景颜色
-		//if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS)
-		//{
-		//	glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-		//	glClear(GL_COLOR_BUFFER_BIT);
-		//}
-		//else if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS)
-		//{
-		//	glClearColor(0.3f, 0.2f, 0.3f, 1.0f);
-		//	glClear(GL_COLOR_BUFFER_BIT);
-		//}
+		// 计算并显示帧率（每秒更新一次）
+		frameCount++;
+		if (currentTime - fpsUpdateTime >= 1.0) // 每秒更新一次FPS
+		{
+			double fps = frameCount / (currentTime - fpsUpdateTime);
+			std::cout << "FPS: " << fps << std::endl;
+			frameCount = 0;
+			fpsUpdateTime = currentTime;
+		}
 
-		glClearColor(0.0f, 1.0f, 1.0f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
-
-		myObject.Display(); // 绘制自定义对象
-		
+		// 处理输入
 		if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
 		{
 			const glm::vec3& p = myObject.transform.position;
-			myObject.transform.setPosition(glm::vec3(p.x, p.y+0.1f*curTimeDelta, p.z));
+			myObject.transform.setPosition(glm::vec3(p.x, p.y + 0.5f * deltaTime, p.z));
 		}
-		
+		if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+		{
+			const glm::vec3& p = myObject.transform.position;
+			myObject.transform.setPosition(glm::vec3(p.x, p.y - 0.5f * deltaTime, p.z));
+		}
+		if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
+		{
+			const glm::vec3& p = myObject.transform.position;
+			myObject.transform.setPosition(glm::vec3(p.x - 0.5f * deltaTime, p.y, p.z));
+		}
+		if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+		{
+			const glm::vec3& p = myObject.transform.position;
+			myObject.transform.setPosition(glm::vec3(p.x + 0.5f * deltaTime, p.y, p.z));
+		}
 
+		// 清屏
+		glClearColor(0.0f, 1.0f, 1.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+
+		// 绘制对象
+		myObject.Display(); // 绘制自定义对象
+
+		// 交换缓冲区
 		glfwSwapBuffers(window);//交换前后缓冲区
 		glfwPollEvents();//检查是否有事件发生
-		auto elapsed = glfwGetTime() - lastTime; // 计算当前帧的渲染时间
-		std::cout << "Elapsed time for this frame: " << elapsed << " seconds" << std::endl;
-		/*if (elapsed < frameDuration)
+
+		// 帧率限制
+		double frameTime = glfwGetTime() - currentTime;
+		if (frameDuration>0 && frameTime < frameDuration)
 		{
-			std::this_thread::sleep_for(std::chrono::duration<double>(frameDuration - elapsed));
-		}*/
+			double sleepTime = frameDuration - frameTime;
+			std::this_thread::sleep_for(std::chrono::duration<double>(sleepTime));
+		}
 	}
+
 	// 6.清理资源
+	glDeleteVertexArrays(1, &VAO);
+	glDeleteBuffers(1, &VBO);
+	glDeleteBuffers(1, &EBO);
+	glDeleteTextures(2, textures);
+
 	glfwTerminate();
 	return 0;
 }
@@ -220,7 +245,7 @@ void AddTexture(const char* address)
 	}
 	else
 	{
-		std::cout << "Failed to load texture" << std::endl;
+		std::cout << "Failed to load texture: " << address << std::endl;
 	}
 	stbi_image_free(data); // 释放图像内存
 }
